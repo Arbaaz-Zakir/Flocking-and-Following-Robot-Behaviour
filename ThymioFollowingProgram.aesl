@@ -1,0 +1,287 @@
+<!DOCTYPE aesl-source>
+<network>
+
+
+<!--list of global events-->
+
+
+<!--list of constants-->
+<constant value="-1" name="REVERSE"/>
+<constant value="0" name="STOP"/>
+<constant value="1" name="WANDER"/>
+<constant value="2" name="LINE_AVOID"/>
+<constant value="3" name="AVOIDING"/>
+<constant value="4" name="SEARCH"/>
+<constant value="5" name="MOVE_TOWARDS"/>
+<constant value="750" name="THRESHOLD"/>
+<constant value="300" name="SPEED"/>
+<constant value="305" name="HIGH_SPEED"/>
+<constant value="150" name="LOW_SPEED"/>
+<constant value="295" name="MOVE_TOWARD_SPEED"/>
+<constant value="300" name="LINE_TURN_ANGLE"/>
+<constant value="4400" name="PER_SPACE"/>
+<constant value="100" name="MAX_VIEW"/>
+<constant value="200" name="MOVE_TOWARDS_ANGLE"/>
+<constant value="900" name="AVOID_ANGLE"/>
+<constant value="400" name="AVOID_DISTANCE"/>
+<constant value="350" name="SEARCH_TURN_ANGLE"/>
+<constant value="8000" name="WANDER_DISTANCE"/>
+
+
+<!--show keywords state-->
+<keywords flag="true"/>
+
+
+<!--node thymio-II-->
+<node nodeId="2" name="thymio-II">#Oprtimised for Following
+#Arbaaz Zakir, SRN: 16040776
+#LAST EDITED: 08/03/2019
+#------------------------------
+#States
+#---------
+#STOP
+#WANDER
+#LINE_AVOID
+#AVOIDING
+#SEARCH
+#MOVE_TOWARDS
+
+#Constants
+#----------
+#THRESHOLD	- area define by a black line which the robot cannot leave
+#SPEED	- how fast robot travels when wandering
+#HIGH_SPEED	- the speed at which the robot travels for veering, slightly faster than SPEED
+#LOW_SPEED	- a reduced speed at which the robot travels used for veering
+#MOVE_TOWARD_SPEED	- speed used when robot detects object slightly slower than SPEED, to attempt and prevent collision
+#LINE_TURN_ANGLE	- amount which robot turns when encountering the THRESHOLD
+#PER_SPACE	- the distance of an object at the robots horizontal sensors, before it begins avoiding
+#MAX_VIEW	- the distance at which the robot can detect objects
+#MOVE_TOWARDS_ANGLE	-angle at which robot moves when object detected
+#AVOID_ANGLE	- angle at which robot avoids when objects within its personal space (PER_SPACE)
+#AVOID_DISTANCE	- distance travelled after avoiding object (used in reversing
+#SEARCH_TURN_ANGLE	- turn robot takes at start and when reaching end of WANDER_DISTANCE
+#WANDER_DISTANCE	- amount robot turns before turning(searching)
+
+#LEDS
+#----------
+#BLUE LED indicates turn leftGround
+#GREEN LED indicates turn right
+#YELLOW LED indicates stop
+#PINK LED indicates moving foward
+#WHITE LED indicates thymio is moving backwards
+#RED LED indicates all movement towards the object
+
+
+var i = 0		 #variable will be used to process sensor data using a loop to iterate
+var leftGround	 #will contain the data for prox.ground.delta[0]
+var rightGround	 #will contain the data for prox.ground.delta[1]
+var nearest = 0	 
+var state = SEARCH #inital state
+
+timer.period[0] = 0 #timers initalised at 0
+timer.period[1] = 0
+
+#--------------------------------------------------------------------------------------------------------
+#PLEASE READ THIS:
+# BIT OF CODE BELOW IS THE BUTTON TO TOGGLE BETWEEN STOP AND START THOUGH IT SEEMS TO WORK WELL IN THE
+#I HAD SOME PROBLEMS WHEN OPTIMISING ON PHYSICAL ROBOTS PLEASE UNCOMMENT AND CHECK IF IT WORKS
+
+#onevent button.forward
+## button when 1 will stop else state will shift to start 
+#	when button.forward == 1 do 
+#		if state == STOP then	# if thymio stopped then move
+#			state = SEARCH
+#			callsub Foward
+#		else	#if not stopped then stop
+#			state = STOP
+#			callsub Stop
+#		end
+#	end
+#return 
+#-----------------------------------------------------------------------------------------------------------
+
+
+onevent prox
+	#processing the robots front data sensors
+	nearest = prox.horizontal[0]
+	for i in 1:4 do	
+		if prox.horizontal[i] > prox.horizontal[i-1] then
+			nearest = prox.horizontal[i] #nearest stores the value of the highest value,the sensor closest to the object
+		end
+	end
+
+#STATE1
+# when switched on the robot carries out a search to see if any objects/ robots within its MAX_VIEW 
+	if state == SEARCH then	#when button pressed state switched from STOP to SEARCH assuming button is uncommented 
+		state = SEARCH	#which then becomes search
+		callsub RandTurn	#make random turn at an angle before defaulting to WANDER
+		timer.period[0] = SEARCH_TURN_ANGLE
+	  #	callsub Detect		
+		if nearest >= MAX_VIEW then	#if robots in robo range
+			state = MOVE_TOWARDS	#state change to MOVE_TOWARDS
+		else
+			state = WANDER			#otherwise default to wandering
+		end
+	end
+
+#STATE2	
+# stay within line boundary defined in THRESHOLD 
+	if  state != LINE_AVOID then	#when moving...
+		leftGround = prox.ground.delta[0]	#process ground sensors
+		rightGround = prox.ground.delta[1]	
+		
+		if leftGround &lt; THRESHOLD or	#if left or right ground sesnsor detects a black line turn 
+		rightGround &lt; THRESHOLD then
+			if  leftGround &lt; THRESHOLD then	#turnRight if left sensor detects the line
+				callsub TurnRight
+				timer.period[0] = LINE_TURN_ANGLE
+			elseif rightGround &lt; THRESHOLD then	#turnLeft if right sensor detects the line
+				callsub TurnLeft
+				timer.period[0] = LINE_TURN_ANGLE - 50
+			end
+			state = LINE_AVOID	#update state to indicate avoiding line 
+		end		
+	end
+	
+#STATE3
+# wandering towards other bots within its MAX_VIEW and outsinde its PER_SPACE 
+	if state != STOP and state != LINE_AVOID then	#When not stopped or avoiding the line
+		if nearest > MAX_VIEW and nearest &lt;= PER_SPACE then	#When within the thymio sensor sight and not within its personal space 
+			if nearest == prox.horizontal[0] or nearest == prox.horizontal[1] then	#veer left if nearest is equal to sensor 0 or 1 
+				callsub VeerLeft
+				timer.period[0] = MOVE_TOWARDS_ANGLE - 40
+				
+			elseif nearest == prox.horizontal[2] then	#move foward if nearest is equal to sensor 2
+				callsub MoveTowards	
+				
+			elseif nearest == prox.horizontal[3] or nearest == prox.horizontal[4] then	#turn right if nearest is equal to sensor 3 or 4 
+				callsub VeerRight
+				timer.period[0] =MOVE_TOWARDS_ANGLE
+			end
+			state = MOVE_TOWARDS		#state updated to indicate its moving towards object/ robot 
+		elseif nearest >PER_SPACE then	# if robot gets too close to obsticle it defaults to avoiding 
+			state = AVOIDING
+		end
+	end
+
+#STATE4
+# avoiding obsticles too close
+
+	if state == AVOIDING or state == MOVE_TOWARDS or state == SEARCH then
+		if  nearest >= PER_SPACE then	#if object is within thymio's personal space then avoid
+			#if  state != AVOIDING then
+				state = AVOIDING		#change state to avoid
+				callsub RandTurn		#turn in a random direction
+				timer.period[0] = AVOID_ANGLE
+			#end
+		end		
+		if nearest > 4504 then	#if thymio exceeds the personal space it will then reverse a little to allow room for movement and try to prevent getting stuck
+			callsub Reverse	#move backwards
+			timer.period[0] = AVOID_DISTANCE
+		end
+	end	
+return
+
+#---------------------------------------------------------------------------------
+
+onevent timer0
+#whenever not stopped move forwards, if not avoiding it then moves to a set distance.
+	if state != STOP then
+		callsub Forward
+		timer.period[0] = 0
+		if state != AVOIDING then
+			timer.period[1] = WANDER_DISTANCE
+		end	
+		state = WANDER
+	end
+return
+
+onevent timer1
+#when wandering the thymio moves a certain distance once reaching the end of set distance it then turns in a random direction and continuing search 
+	if  state == WANDER then
+		timer.period[1] = 0
+		callsub RandTurn
+		timer.period[0] = SEARCH_TURN_ANGLE
+	end
+return
+
+
+
+#### Sub routines ####
+
+#random turn
+sub RandTurn
+	call math.rand(i) #gets a random integer 
+	if i > -1 then
+		callsub TurnRight #if greater than -1 that calls right turn 
+	else
+		callsub TurnLeft #other wise if the opposite is true then turns left
+	end
+return
+
+#left turn
+sub TurnLeft
+	motor.left.target = -SPEED
+	motor.right.target = SPEED
+	call leds.top(0, 0, 32)	#blue LED indicates turn left
+return
+
+#veer Left
+sub VeerLeft
+	motor.left.target = LOW_SPEED
+	motor.right.target = HIGH_SPEED
+	call leds.top(32, 0, 0)	#red LED indicates veering left
+return
+
+#turn right 
+sub TurnRight
+	motor.left.target = SPEED
+	motor.right.target = -SPEED
+	call leds.top(0, 32, 0)	#green LED indicates turn right
+return
+
+#veer right 
+sub VeerRight
+	motor.left.target = HIGH_SPEED
+	motor.right.target = LOW_SPEED
+	call leds.top(32, 0, 0)	#red LED indicates veering right
+return
+
+#STOP
+sub Stop
+	motor.left.target = 0
+	motor.right.target = 0
+	timer.period[0] = 0 # init timer 0
+	call leds.top(32, 32, 0) # yellow LED indicates stop
+return
+
+#Move forward
+sub Forward
+	motor.left.target = SPEED
+	motor.right.target = SPEED
+	timer.period[0] = 0 #init timer 0
+	call leds.top(30, 0, 15) #pink LED indicates move foward
+return
+
+#Move forward at a reduced speed
+sub MoveTowards
+	#switch back to wandering 
+	motor.left.target = MOVE_TOWARD_SPEED
+	motor.right.target = MOVE_TOWARD_SPEED
+	timer.period[0] = 0 #init timer 0
+	call leds.top(32, 0, 0) #red LED indicates moving straight toward object
+return
+
+#Move backwards
+sub Reverse
+	#switch back to wandering 
+	motor.left.target = -LOW_SPEED
+	motor.right.target = -LOW_SPEED
+	timer.period[0] = 0 #init timer 0
+	call leds.top(0, 0, 0) #white LED indicates thymio is moving backwards
+return
+
+</node>
+
+
+</network>
